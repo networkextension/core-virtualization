@@ -92,6 +92,13 @@ PWDMKDB="$OBJ/tmp/legacy/usr/sbin/pwd_mkdb"
 for f in pwd.db spwd.db passwd; do add etc/$f 0644; done
 
 echo "=== [4/6] root UFS2 image (makefs + METALOG) ==="
+# CRITICAL: installworld records size= for every file in METALOG. The config
+# edits above (ttys/master.passwd/sshd_config/pwd_mkdb) change file sizes, and
+# makefs trusts size=: larger files are SILENTLY TRUNCATED (corrupt image),
+# smaller ones abort the populate — either way a broken or stale image that
+# boots the kernel but never reaches init. Strip size= (optional in mtree) so
+# makefs uses the real on-disk sizes.
+sed -i '' -E 's/ size=[0-9]+//g' "$METALOG"
 ROOTFS=$OUT/rootfs.ufs
 "$MAKEFS" -t ffs -B little -o label=rootfs,version=2 \
   -M 3g -F "$METALOG" -N "$STAGE/etc" "$ROOTFS" "$STAGE"
