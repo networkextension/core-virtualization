@@ -1,0 +1,32 @@
+# Large / proprietary assets — never publish
+BootKernelCollection.kc
+*.kc
+logstream.txt
+*.log
+
+# Build artifacts
+harness/vzrun
+*.o
+*.dSYM/
+
+# VM / image outputs (multi-GB, live on /Volumes/cross-buld)
+*.raw
+*.img
+*.qcow2
+*.efivars
+*.machineid
+*.serial.log
+results/
+
+# Secrets / keys
+*_key
+*_key.pub
+id_ed25519*
+*.pem
+authorized_keys
+
+# macOS
+.DS_Store
+
+# Claude Code internal
+.claude/
