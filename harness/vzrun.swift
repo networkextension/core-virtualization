@@ -77,6 +77,16 @@ final class Bench {
                 FileHandle.standardError.write(Data("vzrun: ready marker at +\(String(format: "%.3f", t))s\n".utf8))
             }
         }
+        // Prompts (getty "login: ") end without a newline and never become a
+        // complete line — also match the residual buffer.
+        if tReady == nil, !buf.isEmpty {
+            let tail = String(decoding: buf, as: UTF8.self)
+            let tr = NSRange(tail.startIndex..<tail.endIndex, in: tail)
+            if mk.ready.firstMatch(in: tail, range: tr) != nil {
+                tReady = elapsed()
+                FileHandle.standardError.write(Data("vzrun: ready marker (prompt) at +\(String(format: "%.3f", tReady!))s\n".utf8))
+            }
+        }
     }
 
     func finish(_ status: String) -> Never {
@@ -152,5 +162,11 @@ let delegate = Delegate()
 let vm = VZVirtualMachine(configuration: cfg); vm.delegate = delegate
 FileHandle.standardError.write(Data("vzrun: booting \(os) (\(diskURL.lastPathComponent)), timeout \(Int(timeout))s\n".utf8))
 vm.start { r in if case let .failure(e) = r { die("failed to start: \(e)") } }
-DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { FileHandle.standardError.write(Data("vzrun: watchdog timeout\n".utf8)); bench.finish("timeout") }
+DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+    // Reaching the ready marker counts as success even if the guest has no
+    // auto-poweroff bench script; timeout only means "never got ready".
+    let status = bench.tReady != nil ? "ready" : "timeout"
+    FileHandle.standardError.write(Data("vzrun: watchdog (\(status))\n".utf8))
+    bench.finish(status)
+}
 RunLoop.main.run(until: .distantFuture)
