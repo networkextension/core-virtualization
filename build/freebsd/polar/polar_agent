@@ -1,0 +1,28 @@
+#!/bin/sh
+# PROVIDE: polar_agent
+# REQUIRE: NETWORKING polar_seed
+# KEYWORD: shutdown
+#
+# polar-agent attach — the in-guest agent that registers this VM with the
+# Polar dock. Registration itself happens once in polar_seed (first boot,
+# from the seed disk); this service just keeps the agent attached.
+. /etc/rc.subr
+name=polar_agent
+rcvar=polar_agent_enable
+load_rc_config $name
+: ${polar_agent_enable:=NO}
+: ${polar_agent_user:=root}
+: ${polar_agent_home:=/root}
+: ${polar_agent_bin:=/usr/local/bin/polar-agent}
+pidfile=/var/run/${name}.pid
+command=/usr/sbin/daemon
+command_args="-P ${pidfile} -r -u ${polar_agent_user} -o /var/log/${name}.log /usr/bin/env HOME=${polar_agent_home} ${polar_agent_bin} attach --workdir=${polar_agent_home}"
+start_precmd=polar_agent_precmd
+polar_agent_precmd() {
+	if [ ! -f "${polar_agent_home}/.polar/agent.toml" ]; then
+		echo "polar_agent: not registered yet (${polar_agent_home}/.polar/agent.toml missing); polar_seed will register on next boot" >&2
+		return 1
+	fi
+	return 0
+}
+run_rc_command "$1"

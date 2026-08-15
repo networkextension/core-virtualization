@@ -1,0 +1,70 @@
+#!/bin/sh
+# PROVIDE: polar_seed
+# REQUIRE: NETWORKING
+# BEFORE: polar_agent LOGIN
+#
+# First-boot registration from the seed disk (2nd virtio-blk, FAT12,
+# label POLARSEED). Reads /polar/agent.env:
+#   POLAR_SERVER=https://dock...   POLAR_ENROLL_TOKEN=...   POLAR_AGENT_NAME=vm-xxx
+# Sets the hostname, waits for a default route, runs `polar-agent register`,
+# and leaves ~/.polar/agent.toml behind. Idempotent: skips when agent.toml
+# exists; on failure it does NOT mark done, so the next boot retries.
+. /etc/rc.subr
+name=polar_seed
+rcvar=polar_seed_enable
+start_cmd=polar_seed_start
+stop_cmd=":"
+load_rc_config $name
+: ${polar_seed_enable:=NO}
+: ${polar_seed_dev:=/dev/vtbd1}
+: ${polar_seed_home:=/root}
+: ${polar_seed_bin:=/usr/local/bin/polar-agent}
+: ${polar_seed_log:=/var/log/polar-seed.log}
+: ${polar_seed_net_wait:=60}
+
+polar_seed_log() { echo "$(date '+%Y-%m-%dT%H:%M:%S') $*" >> "${polar_seed_log}"; }
+
+polar_seed_start() {
+	if [ -f "${polar_seed_home}/.polar/agent.toml" ]; then
+		return 0
+	fi
+	if [ ! -e "${polar_seed_dev}" ]; then
+		polar_seed_log "no seed device ${polar_seed_dev}; skipping"
+		return 0
+	fi
+	mnt=/mnt/polar-seed
+	mkdir -p "$mnt"
+	if ! mount -t msdosfs -o ro "${polar_seed_dev}" "$mnt" 2>>"${polar_seed_log}"; then
+		polar_seed_log "mount ${polar_seed_dev} failed"
+		return 1
+	fi
+	if [ ! -f "$mnt/polar/agent.env" ]; then
+		polar_seed_log "seed has no polar/agent.env"
+		umount "$mnt"; return 1
+	fi
+	# shellcheck disable=SC1090
+	. "$mnt/polar/agent.env"
+	umount "$mnt"
+	if [ -n "${POLAR_AGENT_NAME}" ]; then
+		hostname "${POLAR_AGENT_NAME}"
+		sysrc -q hostname="${POLAR_AGENT_NAME}" >/dev/null
+	fi
+	if [ -z "${POLAR_SERVER}" ] || [ -z "${POLAR_ENROLL_TOKEN}" ]; then
+		polar_seed_log "POLAR_SERVER / POLAR_ENROLL_TOKEN missing in seed"
+		return 1
+	fi
+	# wait for a default route (DHCP on vtnet0)
+	i=0
+	while [ $i -lt "${polar_seed_net_wait}" ] && ! route -n get default >/dev/null 2>&1; do
+		sleep 1; i=$((i+1))
+	done
+	polar_seed_log "registering '${POLAR_AGENT_NAME}' at ${POLAR_SERVER} (net wait ${i}s)"
+	if env HOME="${polar_seed_home}" "${polar_seed_bin}" register \
+		--server="${POLAR_SERVER}" --token="${POLAR_ENROLL_TOKEN}" --name="${POLAR_AGENT_NAME}" >>"${polar_seed_log}" 2>&1; then
+		polar_seed_log "registered OK"
+		return 0
+	fi
+	polar_seed_log "register FAILED (will retry next boot)"
+	return 1
+}
+run_rc_command "$1"
