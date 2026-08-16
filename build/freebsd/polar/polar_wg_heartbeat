@@ -1,0 +1,11 @@
+#!/bin/sh
+# polar-cloud overlay heartbeat: keeps wg_devices.last_seen_at fresh so the WG UI
+# shows the VM online. Installed to /usr/local/sbin, run from root's crontab (* * * * *).
+export PATH="$PATH:/usr/local/sbin:/usr/local/bin"
+S=/root/.polar/wg.json
+[ -s "$S" ] || exit 0
+SRV=$(jq -r .server "$S"); DID=$(jq -r .device_id "$S"); TOK=$(jq -r .token "$S")
+HS=$(wg show wg0 latest-handshakes 2>/dev/null | awk 'NR==1{print $2}'); NOW=$(date +%s)
+AGE=0; [ -n "${HS:-}" ] && [ "$HS" -gt 0 ] 2>/dev/null && AGE=$((NOW-HS))
+curl -fsS --max-time 15 -X POST "$SRV/v1/heartbeat" -H "Authorization: Bearer $TOK" -H "X-Device-Id: $DID" \
+	-H 'Content-Type: application/json' -d "{\"stats\":{\"last_handshake_sec\":$AGE}}" >/dev/null 2>&1 || true
