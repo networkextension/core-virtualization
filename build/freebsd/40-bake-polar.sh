@@ -35,11 +35,11 @@ $SSH root@"$IP" 'mkdir -p /usr/local/bin /usr/local/sbin /usr/local/etc/rc.d'
 $SCP "$AGENT" root@"$IP":/usr/local/bin/polar-agent
 $SCP "$HERE/polar/polar_agent" "$HERE/polar/polar_seed" "$HERE/polar/polar_wg" root@"$IP":/usr/local/etc/rc.d/
 $SCP "$HERE/polar/polar_wg_heartbeat" root@"$IP":/usr/local/sbin/polar-wg-heartbeat
-echo "== pkg: wireguard-tools curl jq (overlay join; needs NAT internet in the bake VM)"
+echo "== pkg: wireguard-tools curl jq sudo (overlay join + login user; needs NAT internet in the bake VM)"
 # pkg.FreeBSD.org (Fastly) is throttled to KB/s from here → go through the LAN
 # HTTP proxy (zen). PKG_PROXY="" to go direct. Bake-time only; not baked in.
 PKG_PROXY="${PKG_PROXY-http://192.168.11.57:10082}"
-$SSH root@"$IP" "export HTTP_PROXY='$PKG_PROXY' HTTPS_PROXY='$PKG_PROXY' http_proxy='$PKG_PROXY' https_proxy='$PKG_PROXY' ASSUME_ALWAYS_YES=yes IGNORE_OSVERSION=yes; rm -f /usr/local/etc/pkg/repos/FreeBSD.conf; pkg bootstrap -f 2>&1 | tail -2; pkg install -y wireguard-tools curl jq 2>&1 | tail -3 && for b in wg wg-quick curl jq; do command -v \$b; done"
+$SSH root@"$IP" "export HTTP_PROXY='$PKG_PROXY' HTTPS_PROXY='$PKG_PROXY' http_proxy='$PKG_PROXY' https_proxy='$PKG_PROXY' ASSUME_ALWAYS_YES=yes IGNORE_OSVERSION=yes; rm -f /usr/local/etc/pkg/repos/FreeBSD.conf; pkg bootstrap -f 2>&1 | tail -2; pkg install -y wireguard-tools curl jq sudo 2>&1 | tail -3 && for b in wg wg-quick curl jq sudo; do command -v \$b; done"
 $SSH root@"$IP" '
 set -e
 chmod 0755 /usr/local/bin/polar-agent

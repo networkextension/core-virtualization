@@ -24,7 +24,50 @@ load_rc_config $name
 
 polar_seed_log() { echo "$(date '+%Y-%m-%dT%H:%M:%S') $*" >> "${polar_seed_log}"; }
 
+# Login user from the seed (P1.5-N4): polar/authorized_keys + polar/password
+# (+ POLAR_LOGIN_USER in agent.env, default polar). Creates the user with a
+# passwordless sudo, installs the keys, sets the password and enables sshd
+# password auth. Once (skips when the user already exists).
+polar_seed_login() {
+	mnt=$1
+	user=${POLAR_LOGIN_USER:-polar}
+	if ! pw usershow "$user" >/dev/null 2>&1; then
+		pw useradd "$user" -m -G wheel -s /bin/sh -c "Polar cloud login user" >>"${polar_seed_log}" 2>&1 || return 1
+		polar_seed_log "created login user $user"
+	fi
+	home=$(pw usershow "$user" | cut -d: -f9)
+	if [ -f "$mnt/polar/authorized_keys" ]; then
+		mkdir -p "$home/.ssh"; chmod 700 "$home/.ssh"
+		cp "$mnt/polar/authorized_keys" "$home/.ssh/authorized_keys"
+		chmod 600 "$home/.ssh/authorized_keys"; chown -R "$user:$user" "$home/.ssh"
+	fi
+	if [ -s "$mnt/polar/password" ]; then
+		head -1 "$mnt/polar/password" | tr -d '\r\n' | pw usermod "$user" -h 0 >>"${polar_seed_log}" 2>&1
+		# sshd: allow password login for the login user (root stays key-only:
+		# PermitRootLogin prohibit-password). sshd takes the FIRST value of a
+		# keyword, so rewrite the image's "no" in place rather than appending.
+		sed -i '' -e 's/^#*PasswordAuthentication .*/PasswordAuthentication yes/' \
+			-e 's/^#*KbdInteractiveAuthentication .*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config
+		grep -q '^PasswordAuthentication yes' /etc/ssh/sshd_config || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
+		service sshd restart >/dev/null 2>&1
+	fi
+	if command -v sudo >/dev/null 2>&1 || [ -x /usr/local/bin/sudo ]; then
+		mkdir -p /usr/local/etc/sudoers.d
+		echo "$user ALL=(ALL) NOPASSWD: ALL" > /usr/local/etc/sudoers.d/polar-cloud; chmod 440 /usr/local/etc/sudoers.d/polar-cloud
+	fi
+	return 0
+}
+
 polar_seed_start() {
+	# login user first — independent of the agent registration below
+	if [ -e "${polar_seed_dev}" ]; then
+		lm=/mnt/polar-seed-login; mkdir -p "$lm"
+		if mount -t msdosfs -o ro "${polar_seed_dev}" "$lm" 2>>"${polar_seed_log}"; then
+			[ -f "$lm/polar/agent.env" ] && . "$lm/polar/agent.env"
+			polar_seed_login "$lm" || polar_seed_log "login user setup failed"
+			umount "$lm"
+		fi
+	fi
 	if [ -f "${polar_seed_home}/.polar/agent.toml" ]; then
 		return 0
 	fi
