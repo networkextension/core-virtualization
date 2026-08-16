@@ -1,0 +1,84 @@
+#!/bin/sh
+# PROVIDE: polar_wg
+# REQUIRE: NETWORKING polar_seed
+# BEFORE: LOGIN
+#
+# polar-cloud overlay join (WireGuard). Reads POLAR_WG_SERVER / POLAR_WG_TOKEN /
+# POLAR_WG_HUB from the seed disk's /polar/agent.env (same seed polar_seed
+# uses); on first boot: wg genkey → POST /v1/register (one-shot token bound to
+# the cloud hub) → /usr/local/etc/wireguard/wg0.conf → wireguard rc up.
+# Idempotent: an existing wg0.conf means already joined (same key + token →
+# same overlay IP across reboots). Failure = retry next boot. Needs pkgs
+# wireguard-tools + curl + jq (baked by 40-bake-polar.sh).
+. /etc/rc.subr
+# rc(8) runs with a minimal PATH; wg-quick/curl/jq live in /usr/local.
+export PATH="$PATH:/usr/local/sbin:/usr/local/bin"
+name=polar_wg
+rcvar=polar_wg_enable
+start_cmd=polar_wg_start
+stop_cmd=":"
+load_rc_config $name
+: ${polar_wg_enable:=NO}
+: ${polar_wg_dev:=/dev/vtbd1}
+: ${polar_wg_conf:=/usr/local/etc/wireguard/wg0.conf}
+: ${polar_wg_state:=/root/.polar/wg.json}
+: ${polar_wg_log:=/var/log/polar-wg.log}
+: ${polar_wg_net_wait:=60}
+
+polar_wg_log() { echo "$(date '+%Y-%m-%dT%H:%M:%S') $*" >> "${polar_wg_log}"; }
+
+polar_wg_up() {
+	sysrc -q wireguard_enable=YES wireguard_interfaces=wg0 >/dev/null
+	service wireguard start >>"${polar_wg_log}" 2>&1 || service wireguard restart >>"${polar_wg_log}" 2>&1
+}
+
+polar_wg_start() {
+	if [ -s "${polar_wg_conf}" ]; then
+		polar_wg_up; return 0
+	fi
+	[ -e "${polar_wg_dev}" ] || return 0
+	mnt=/mnt/polar-seed; mkdir -p "$mnt"
+	mount -t msdosfs -o ro "${polar_wg_dev}" "$mnt" 2>>"${polar_wg_log}" || { polar_wg_log "mount seed failed"; return 1; }
+	[ -f "$mnt/polar/agent.env" ] && . "$mnt/polar/agent.env"
+	umount "$mnt"
+	[ -n "${POLAR_WG_TOKEN:-}" ] || return 0     # no overlay for this VM
+	for b in wg wg-quick curl jq; do command -v $b >/dev/null || { polar_wg_log "missing $b"; return 1; }; done
+	i=0
+	while [ $i -lt "${polar_wg_net_wait}" ] && ! route -n get default >/dev/null 2>&1; do sleep 1; i=$((i+1)); done
+	umask 077; mkdir -p /usr/local/etc/wireguard /root/.polar
+	[ -s /usr/local/etc/wireguard/wg0.key ] || wg genkey > /usr/local/etc/wireguard/wg0.key
+	PRIV=$(cat /usr/local/etc/wireguard/wg0.key); PUB=$(echo "$PRIV" | wg pubkey)
+	HOST_ID=$(sed -n 's/^host_id *= *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /root/.polar/agent.toml 2>/dev/null | head -1)
+	BODY=$(jq -cn --arg t "$POLAR_WG_TOKEN" --arg p "$PUB" --arg h "$(hostname)" --arg hid "$HOST_ID" --arg a "$(uname -m)" \
+		'{token:$t,pubkey:$p,hostname:$h,host_id:$hid,os:"freebsd",arch:$a,agent_ver:"polar-cloud-guest",wg_listen:51820}')
+	RESP=$(curl -fsS --connect-timeout 10 --max-time 30 -X POST "$POLAR_WG_SERVER/v1/register" -H 'Content-Type: application/json' -d "$BODY" 2>>"${polar_wg_log}") \
+		|| { polar_wg_log "register failed"; return 1; }
+	# Hub-only peer (spoke behind NAT): the hub's allowed_extra carries the mesh /24.
+	# Prefer a private hub endpoint that answers ping (public one won't hairpin from the hub's LAN).
+	HUBPK=$(echo "$RESP" | jq -r '.hub.pubkey // ""')
+	EPS=$(echo "$RESP" | jq -r --arg pk "$HUBPK" '[.peers[]? | select(.pubkey==$pk and .endpoint!="") | .endpoint] | unique | .[]')
+	[ -n "$EPS" ] || EPS=$(echo "$RESP" | jq -r '[.peers[]? | select(.endpoint!="") | .endpoint] | .[]')
+	EP=""; PUBEP=""
+	for e in $EPS; do
+		h=${e%:*}
+		case "$h" in 10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*)
+			ping -c 1 -W 1000 "$h" >/dev/null 2>&1 && { EP=$e; break; } ;;
+		*) PUBEP=$e ;;
+		esac
+	done
+	[ -n "$EP" ] || EP=$PUBEP
+	[ -n "$EP" ] || { polar_wg_log "no hub endpoint in register response"; return 1; }
+	AIPS=$(echo "$RESP" | jq -r --arg pk "$HUBPK" '[.peers[]? | select(.pubkey==$pk) | ((if .wg_ip then [.wg_ip+"/32"] else [] end) + (.allowed_extra // []))] | add | unique | join(", ")')
+	KA=$(echo "$RESP" | jq -r '.keepalive_sec // 25')
+	IP=$(echo "$RESP" | jq -r '.device_ip')
+	printf '[Interface]\nPrivateKey = %s\nAddress = %s/32\nListenPort = 51820\n\n[Peer]\nPublicKey = %s\nEndpoint = %s\nAllowedIPs = %s\nPersistentKeepalive = %s\n' \
+		"$PRIV" "$IP" "$HUBPK" "$EP" "$AIPS" "$KA" > "${polar_wg_conf}"
+	chmod 0600 "${polar_wg_conf}"
+	echo "$RESP" | jq -c --arg s "$POLAR_WG_SERVER" --arg t "$POLAR_WG_TOKEN" '{server:$s,device_id:.device_id,token:$t,device_ip:.device_ip,hub_slug:.hub_slug}' > "${polar_wg_state}"
+	chmod 0600 "${polar_wg_state}"
+	polar_wg_up
+	polar_wg_log "joined ${POLAR_WG_HUB:-?} as $IP via $EP"
+	echo "POLAR_WG_UP $IP" > /dev/console 2>/dev/null || true
+	return 0
+}
+run_rc_command "$1"
