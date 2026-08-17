@@ -50,7 +50,7 @@ polar_wg_start() {
 	PRIV=$(cat /usr/local/etc/wireguard/wg0.key); PUB=$(echo "$PRIV" | wg pubkey)
 	HOST_ID=$(sed -n 's/^host_id *= *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /root/.polar/agent.toml 2>/dev/null | head -1)
 	BODY=$(jq -cn --arg t "$POLAR_WG_TOKEN" --arg p "$PUB" --arg h "$(hostname)" --arg hid "$HOST_ID" --arg a "$(uname -m)" \
-		'{token:$t,pubkey:$p,hostname:$h,host_id:$hid,os:"freebsd",arch:$a,agent_ver:"polar-cloud-guest",wg_listen:51820}')
+		'{token:$t,pubkey:$p,hostname:$h,host_id:$hid,os:"freebsd",arch:$a,agent_ver:"polar-cloud-guest",wg_listen:51820,isolated:true}')
 	RESP=$(curl -fsS --connect-timeout 10 --max-time 30 -X POST "$POLAR_WG_SERVER/v1/register" -H 'Content-Type: application/json' -d "$BODY" 2>>"${polar_wg_log}") \
 		|| { polar_wg_log "register failed"; return 1; }
 	# Hub-only peer (spoke behind NAT): the hub's allowed_extra carries the mesh /24.
