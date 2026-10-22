@@ -33,7 +33,7 @@ sleep 6; IP=$(guest_ip); echo "guest IP=$IP"
 echo "== install polar-agent + rc.d"
 $SSH root@"$IP" 'mkdir -p /usr/local/bin /usr/local/sbin /usr/local/etc/rc.d'
 $SCP "$AGENT" root@"$IP":/usr/local/bin/polar-agent
-$SCP "$HERE/polar/polar_agent" "$HERE/polar/polar_seed" "$HERE/polar/polar_wg" root@"$IP":/usr/local/etc/rc.d/
+$SCP "$HERE/polar/polar_agent" "$HERE/polar/polar_seed" "$HERE/polar/polar_wg" "$HERE/polar/polar_growfs" root@"$IP":/usr/local/etc/rc.d/
 $SCP "$HERE/polar/polar_wg_heartbeat" root@"$IP":/usr/local/sbin/polar-wg-heartbeat
 echo "== pkg: wireguard-tools curl jq sudo (overlay join + login user; needs NAT internet in the bake VM)"
 # pkg.FreeBSD.org (Fastly) is throttled to KB/s from here → go through the LAN
@@ -43,8 +43,9 @@ $SSH root@"$IP" "export HTTP_PROXY='$PKG_PROXY' HTTPS_PROXY='$PKG_PROXY' http_pr
 $SSH root@"$IP" '
 set -e
 chmod 0755 /usr/local/bin/polar-agent
-chmod 0555 /usr/local/etc/rc.d/polar_agent /usr/local/etc/rc.d/polar_seed /usr/local/etc/rc.d/polar_wg /usr/local/sbin/polar-wg-heartbeat
-sysrc -q polar_seed_enable=YES polar_agent_enable=YES polar_wg_enable=YES
+chmod 0555 /usr/local/etc/rc.d/polar_agent /usr/local/etc/rc.d/polar_seed /usr/local/etc/rc.d/polar_wg /usr/local/etc/rc.d/polar_growfs /usr/local/sbin/polar-wg-heartbeat
+# polar_growfs: every-boot grow of / after a polar-cloud disk resize (stock growfs is firstboot-only)
+sysrc -q polar_seed_enable=YES polar_agent_enable=YES polar_wg_enable=YES polar_growfs_enable=YES
 # overlay heartbeat every minute (no-op until wg.json exists)
 ( crontab -l 2>/dev/null | grep -v polar-wg-heartbeat; echo "* * * * * /usr/local/sbin/polar-wg-heartbeat" ) | crontab -
 rm -f /usr/local/etc/wireguard/wg0.conf /usr/local/etc/wireguard/wg0.key /root/.polar/wg.json 2>/dev/null

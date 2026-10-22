@@ -1,0 +1,41 @@
+#!/bin/sh
+# PROVIDE: polar_growfs
+# REQUIRE: fsck growfs
+# BEFORE: root
+#
+# Every-boot grow of / into a disk that polar-cloud enlarged while the VM was
+# stopped (resize → polar-vmd run --disk-size). Stock rc.d/growfs is
+# KEYWORD: firstboot, so it never sees a later resize. Same window as the
+# stock script (after fsck, before / goes rw). No-op unless there is free
+# space after the root partition.
+. /etc/rc.subr
+name=polar_growfs
+rcvar=polar_growfs_enable
+start_cmd=polar_growfs_start
+stop_cmd=":"
+load_rc_config $name
+: ${polar_growfs_enable:=NO}
+: ${polar_growfs_disk:=vtbd0}
+: ${polar_growfs_label:=rootfs}
+
+polar_growfs_start() {
+	disk=${polar_growfs_disk}
+	# After a grow the backup GPT header is no longer at the last LBA; until it
+	# is recovered gpart reports the table CORRUPT and refuses to resize.
+	gpart recover ${disk} >/dev/null 2>&1
+	# Trailing free space in sectors (0 when the last row is a partition).
+	free=$(gpart show ${disk} | awk 'NR>1 && NF>=3 {last = ($3 == "-" && $4 == "free") ? $2 : 0} END {print last+0}')
+	[ "${free}" -gt 2048 ] || return 0
+	idx=$(gpart show -l ${disk} | awk -v l=${polar_growfs_label} '$4 == l {print $3}')
+	if [ -z "${idx}" ]; then
+		logger -t polar_growfs "no partition labelled ${polar_growfs_label} on ${disk}"
+		return 0
+	fi
+	if gpart resize -i ${idx} -a 4k ${disk} && growfs -y /dev/gpt/${polar_growfs_label}; then
+		logger -t polar_growfs "grew ${disk}p${idx} and / by ${free} sectors"
+	else
+		logger -t polar_growfs "grow of ${disk}p${idx} failed"
+	fi
+}
+
+run_rc_command "$1"
