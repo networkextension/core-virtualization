@@ -7,6 +7,7 @@
 #   AGENT=/path/to/polar-agent.freebsd-arm64 \
 #   OUT=/Volumes/cross-buld/freebsd-vm/freebsd-vz-polar.raw \
 #   VMD=~/github/polar-cloud/cmd/polar-vmd/polar-vmd \
+#   [KEY=… W=<work vm dir> PKG_PROXY=…] \
 #   build/freebsd/40-bake-polar.sh
 set -euo pipefail
 BASE="${BASE:-/Volumes/cross-buld/freebsd-vm/freebsd-vz.raw}"
@@ -15,7 +16,7 @@ AGENT="${AGENT:?path to polar-agent freebsd/arm64 binary}"
 OUT="${OUT:-$(dirname "$BASE")/freebsd-vz-polar.raw}"
 VMD="${VMD:-$HOME/github/polar-cloud/cmd/polar-vmd/polar-vmd}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-W="/Volumes/cross-buld/vms/bake-$$"
+W="${W:-/Volumes/cross-buld/vms/bake-$$}"   # work VM dir; override off .89 (e.g. W=~/polar-test/bake-$$)
 SSH="ssh -i $KEY -o ConnectTimeout=8 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 SCP="scp -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 

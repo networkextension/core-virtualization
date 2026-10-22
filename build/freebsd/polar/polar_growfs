@@ -28,13 +28,13 @@ polar_growfs_start() {
 	[ "${free}" -gt 2048 ] || return 0
 	idx=$(gpart show -l ${disk} | awk -v l=${polar_growfs_label} '$4 == l {print $3}')
 	if [ -z "${idx}" ]; then
-		logger -t polar_growfs "no partition labelled ${polar_growfs_label} on ${disk}"
+		echo "polar_growfs: no partition labelled ${polar_growfs_label} on ${disk}"
 		return 0
 	fi
 	if gpart resize -i ${idx} -a 4k ${disk} && growfs -y /dev/gpt/${polar_growfs_label}; then
-		logger -t polar_growfs "grew ${disk}p${idx} and / by ${free} sectors"
+		echo "polar_growfs: grew ${disk}p${idx} and / by ${free} sectors"
 	else
-		logger -t polar_growfs "grow of ${disk}p${idx} failed"
+		echo "polar_growfs: grow of ${disk}p${idx} failed"
 	fi
 }
 
