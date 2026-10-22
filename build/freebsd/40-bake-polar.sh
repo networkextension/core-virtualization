@@ -58,7 +58,7 @@ gpart recover vtbd0 || true
 gpart show vtbd0 | head -5
 touch /firstboot
 # clear any stale identity so every clone registers fresh
-rm -f /root/.polar/agent.toml /etc/ssh/ssh_host_*_key* 2>/dev/null; sysrc -q sshd_enable=YES
+rm -f /root/.polar/agent.toml /etc/ssh/ssh_host_*_key* /var/db/polar-seed-login.done 2>/dev/null; sysrc -q sshd_enable=YES
 # /etc/hostid must be per-clone (polar-agent machine_uuid falls back to it) → regenerate at boot
 rm -f /etc/hostid /etc/machine-id 2>/dev/null; sysrc -q hostid_enable=YES
 : > /var/log/polar-seed.log
