@@ -7,7 +7,7 @@
 #   AGENT=/path/to/polar-agent.freebsd-arm64 \
 #   OUT=/Volumes/cross-buld/freebsd-vm/freebsd-vz-polar.raw \
 #   VMD=~/github/polar-cloud/cmd/polar-vmd/polar-vmd \
-#   [KEY=… W=<work vm dir> PKG_PROXY=…] \
+#   [KEY=… W=<work vm dir> PKG_PROXY=… CPUS=4 MEM=4] \
 #   build/freebsd/40-bake-polar.sh
 set -euo pipefail
 BASE="${BASE:-/Volumes/cross-buld/freebsd-vm/freebsd-vz.raw}"
@@ -25,7 +25,7 @@ guest_ip() { local mac; mac=$(python3 -c "import json;print(json.load(open('$W/c
   grep -B1 -A2 ip_address /var/db/dhcpd_leases | grep -B1 "hw_address=1,$mac" | grep ip_address | head -1 | cut -d= -f2; }
 
 echo "== create work VM from $BASE"
-"$VMD" create --dir "$W" --image "$BASE" --disk-size 8G >/dev/null
+"$VMD" create --dir "$W" --image "$BASE" --disk-size 8G --cpus "${CPUS:-4}" --mem-gib "${MEM:-4}" >/dev/null
 "$VMD" run --dir "$W" --detach >/dev/null
 for i in $(seq 1 60); do st | grep -q '"state":"running"' && break; sleep 2; done
 sleep 6; IP=$(guest_ip); echo "guest IP=$IP"
