@@ -7,6 +7,7 @@
 #   AGENT=/path/to/polar-agent.freebsd-arm64 \
 #   OUT=/Volumes/cross-buld/freebsd-vm/freebsd-vz-polar.raw \
 #   VMD=~/github/polar-cloud/cmd/polar-vmd/polar-vmd \
+#   [KEY=… W=<work vm dir> PKG_PROXY=… CPUS=4 MEM=4] \
 #   build/freebsd/40-bake-polar.sh
 set -euo pipefail
 BASE="${BASE:-/Volumes/cross-buld/freebsd-vm/freebsd-vz.raw}"
@@ -15,7 +16,7 @@ AGENT="${AGENT:?path to polar-agent freebsd/arm64 binary}"
 OUT="${OUT:-$(dirname "$BASE")/freebsd-vz-polar.raw}"
 VMD="${VMD:-$HOME/github/polar-cloud/cmd/polar-vmd/polar-vmd}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-W="/Volumes/cross-buld/vms/bake-$$"
+W="${W:-/Volumes/cross-buld/vms/bake-$$}"   # work VM dir; override off .89 (e.g. W=~/polar-test/bake-$$)
 SSH="ssh -i $KEY -o ConnectTimeout=8 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 SCP="scp -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
 
@@ -24,7 +25,7 @@ guest_ip() { local mac; mac=$(python3 -c "import json;print(json.load(open('$W/c
   grep -B1 -A2 ip_address /var/db/dhcpd_leases | grep -B1 "hw_address=1,$mac" | grep ip_address | head -1 | cut -d= -f2; }
 
 echo "== create work VM from $BASE"
-"$VMD" create --dir "$W" --image "$BASE" --disk-size 8G >/dev/null
+"$VMD" create --dir "$W" --image "$BASE" --disk-size 8G --cpus "${CPUS:-4}" --mem-gib "${MEM:-4}" >/dev/null
 "$VMD" run --dir "$W" --detach >/dev/null
 for i in $(seq 1 60); do st | grep -q '"state":"running"' && break; sleep 2; done
 sleep 6; IP=$(guest_ip); echo "guest IP=$IP"
@@ -33,7 +34,7 @@ sleep 6; IP=$(guest_ip); echo "guest IP=$IP"
 echo "== install polar-agent + rc.d"
 $SSH root@"$IP" 'mkdir -p /usr/local/bin /usr/local/sbin /usr/local/etc/rc.d'
 $SCP "$AGENT" root@"$IP":/usr/local/bin/polar-agent
-$SCP "$HERE/polar/polar_agent" "$HERE/polar/polar_seed" "$HERE/polar/polar_wg" root@"$IP":/usr/local/etc/rc.d/
+$SCP "$HERE/polar/polar_agent" "$HERE/polar/polar_seed" "$HERE/polar/polar_wg" "$HERE/polar/polar_growfs" root@"$IP":/usr/local/etc/rc.d/
 $SCP "$HERE/polar/polar_wg_heartbeat" root@"$IP":/usr/local/sbin/polar-wg-heartbeat
 echo "== pkg: wireguard-tools curl jq sudo (overlay join + login user; needs NAT internet in the bake VM)"
 # pkg.FreeBSD.org (Fastly) is throttled to KB/s from here → go through the LAN
@@ -43,8 +44,9 @@ $SSH root@"$IP" "export HTTP_PROXY='$PKG_PROXY' HTTPS_PROXY='$PKG_PROXY' http_pr
 $SSH root@"$IP" '
 set -e
 chmod 0755 /usr/local/bin/polar-agent
-chmod 0555 /usr/local/etc/rc.d/polar_agent /usr/local/etc/rc.d/polar_seed /usr/local/etc/rc.d/polar_wg /usr/local/sbin/polar-wg-heartbeat
-sysrc -q polar_seed_enable=YES polar_agent_enable=YES polar_wg_enable=YES
+chmod 0555 /usr/local/etc/rc.d/polar_agent /usr/local/etc/rc.d/polar_seed /usr/local/etc/rc.d/polar_wg /usr/local/etc/rc.d/polar_growfs /usr/local/sbin/polar-wg-heartbeat
+# polar_growfs: every-boot grow of / after a polar-cloud disk resize (stock growfs is firstboot-only)
+sysrc -q polar_seed_enable=YES polar_agent_enable=YES polar_wg_enable=YES polar_growfs_enable=YES
 # overlay heartbeat every minute (no-op until wg.json exists)
 ( crontab -l 2>/dev/null | grep -v polar-wg-heartbeat; echo "* * * * * /usr/local/sbin/polar-wg-heartbeat" ) | crontab -
 rm -f /usr/local/etc/wireguard/wg0.conf /usr/local/etc/wireguard/wg0.key /root/.polar/wg.json 2>/dev/null
@@ -56,7 +58,7 @@ gpart recover vtbd0 || true
 gpart show vtbd0 | head -5
 touch /firstboot
 # clear any stale identity so every clone registers fresh
-rm -f /root/.polar/agent.toml /etc/ssh/ssh_host_*_key* 2>/dev/null; sysrc -q sshd_enable=YES
+rm -f /root/.polar/agent.toml /etc/ssh/ssh_host_*_key* /var/db/polar-seed-login.done 2>/dev/null; sysrc -q sshd_enable=YES
 # /etc/hostid must be per-clone (polar-agent machine_uuid falls back to it) → regenerate at boot
 rm -f /etc/hostid /etc/machine-id 2>/dev/null; sysrc -q hostid_enable=YES
 : > /var/log/polar-seed.log
