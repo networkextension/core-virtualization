@@ -1,0 +1,27 @@
+From c0789b040eacc7bdf7b6e98fc3c80d7f32105585 Mon Sep 17 00:00:00 2001
+From: XiangBo Kong <yarshure@gmail.com>
+Date: Tue, 27 Oct 2026 13:55:06 +0000
+Subject: [PATCH] arm64: add virtio_console to std.virt
+
+Hypervisors without an emulated UART (Apple's Virtualization.framework)
+offer the virtio console as the only console.  With virtio_console(4)
+built in, it is registered as a system console as soon as it attaches
+instead of only after the module is loaded from the root file system.
+
+Signed-off-by: XiangBo Kong <yarshure@gmail.com>
+---
+ sys/arm64/conf/std.virt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/sys/arm64/conf/std.virt b/sys/arm64/conf/std.virt
+index 8e64ce44f89b..9fc2b1a3ef06 100644
+--- a/sys/arm64/conf/std.virt
++++ b/sys/arm64/conf/std.virt
+@@ -27,3 +27,4 @@ device		vtnet			# VirtIO Ethernet device
+ options 	FDT
+ device		acpi
+ device		acpi_ged
++device		virtio_console	# VirtIO Console device
+-- 
+2.39.3 (Apple Git-146)
+
