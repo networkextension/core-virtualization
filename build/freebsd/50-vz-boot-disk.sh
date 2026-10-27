@@ -26,14 +26,15 @@ STAGE="${STAGE:-/Volumes/cross-buld/vz-boot-stage}"
 OUT="${OUT:-/Volumes/cross-buld/freebsd-vm/vz-boot.raw}"
 LOADER_EFI="${LOADER_EFI:?LOADER_EFI= path to the official image loader.efi}"
 ROOTDEV="${ROOTDEV:-ufs:/dev/gpt/rootfs}"                   # official VM images label / as rootfs
+KERNCONF="${KERNCONF:-VZ}"
 
 unset LDFLAGS CPPFLAGS PKG_CONFIG_PATH
 rm -rf "$STAGE"; mkdir -p "$STAGE/ufs" "$STAGE/esp/efi/boot" "$STAGE/esp/efi/freebsd"
 
-echo "=== installkernel KERNCONF=VZ"
+echo "=== installkernel KERNCONF=$KERNCONF"
 "$SRC/tools/build/make.py" --cross-bindir=/Volumes/cross-buld/shim/xbin \
   TARGET=arm64 TARGET_ARCH=aarch64 DESTDIR="$STAGE/ufs" -DNO_ROOT -DWITHOUT_DEBUG_FILES \
-  installkernel KERNCONF=VZ >"$STAGE/ik.log" 2>&1 || { tail -30 "$STAGE/ik.log"; exit 1; }
+  installkernel KERNCONF="$KERNCONF" >"$STAGE/ik.log" 2>&1 || { tail -30 "$STAGE/ik.log"; exit 1; }
 rm -f "$STAGE/ufs/METALOG"
 # Only the kernel itself: after root mount, kldload resolves /boot/kernel on the
 # official image (same branch → same KBI), so shipping modules here only adds size.
