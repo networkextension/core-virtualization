@@ -1,0 +1,41 @@
+From 030e39011622b81cf8559b7e3174d0e85869e4eb Mon Sep 17 00:00:00 2001
+From: XiangBo Kong <yarshure@gmail.com>
+Date: Tue, 27 Oct 2026 12:37:46 +0000
+Subject: [PATCH] nuageinit: mount the config drive read-only
+
+The NoCloud / config-2 volume is only ever read, but rc.d/nuageinit
+mounts it read-write.  When the hypervisor exposes that disk read-only
+(Apple Virtualization.framework with a read-only disk attachment, QEMU
+with readonly=on, ...) mount_msdosfs(8) fails with "Read-only file
+system", the failure is ignored, and nuageinit later reports
+
+  nuageinit: error parsing nocloud meta-data:
+      /media/nuageinit/meta-data: No such file or directory
+
+so no users, keys or hostname are configured.  Linux cloud-init mounts
+the seed read-only as well.
+
+Mount it with -o ro, and fail with a clear message if the mount fails.
+
+Signed-off-by: XiangBo Kong <yarshure@gmail.com>
+---
+ libexec/rc/rc.d/nuageinit | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/libexec/rc/rc.d/nuageinit b/libexec/rc/rc.d/nuageinit
+index 43476a71c9eb..2210b15de6b6 100755
+--- a/libexec/rc/rc.d/nuageinit
++++ b/libexec/rc/rc.d/nuageinit
+@@ -49,7 +49,8 @@ nuageinit_start()
+ 	if [ -n "$drive" ]; then
+ 		mkdir -p /media/nuageinit
+ 		fs=$(fstyp $drive 2> /dev/null)
+-		mount -t $fs $drive /media/nuageinit
++		mount -t $fs -o ro $drive /media/nuageinit || \
++		    err 1 "Unable to mount $drive"
+ 	else
+ 		product=$(kenv smbios.system.product)
+ 		case "$product" in
+-- 
+2.39.3 (Apple Git-146)
+
