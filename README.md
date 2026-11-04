@@ -31,6 +31,7 @@ build/freebsd/
   10-build-world-kernel.sh   cross buildworld + buildkernel KERNCONF=VZ
   20-build-host-makefs.sh    build FreeBSD's makefs as a macOS host tool
   30-assemble-image.sh       installworld -DNO_ROOT -> METALOG -> makefs -> mkimg
+  50-vz-boot-disk.sh         read-only VZ boot disk (official loader.efi + VZ kernel) for unmodified official images
 doc/design.md          source of truth (Chinese)
 ```
 
